@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -87,13 +89,46 @@ func ParseLogLine(line string) (LogEntry, error) {
 	return entry, nil
 }
 
-func main() {
-	line := "2023-12-25T14:30:15.123Z [INFO] user-service: User authenticated, request_id=req_abc123, user_id=12345"
-	logEntry, err := ParseLogLine(line)
+func ReadLogFile(filepath string) ([]LogEntry, error) {
+	file, err := os.Open(filepath)
 	if err != nil {
-		fmt.Errorf("error parsing line: %w", err)
-		return
+		return nil, fmt.Errorf("error file open: %w", err)
+	}
+	defer file.Close()
+
+	var entries []LogEntry
+
+	totalLines := 0
+	parseErrors := 0
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		totalLines++
+
+		line := scanner.Text()
+		entry, err := ParseLogLine(line)
+		if err != nil {
+			parseErrors++
+
+			fmt.Printf("warning: line: %d: %s\n", totalLines, err)
+			continue
+		}
+
+		entries = append(entries, entry)
 	}
 
-	fmt.Println(logEntry)
+	if err = scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	fmt.Printf("\nProcessing file: %s", filepath)
+	fmt.Println("Total lines:", totalLines)
+	fmt.Println("Valid entries:", len(entries))
+	fmt.Println("Parse errors:", parseErrors)
+
+	return entries, nil
+}
+
+func main() {
+	fmt.Println("Happy coding!!!")
 }
