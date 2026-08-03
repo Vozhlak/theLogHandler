@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -20,6 +21,20 @@ type LogEntry struct {
 	Message   string
 	RequestID string
 	UserID    string
+}
+
+type FailedRequestReport struct {
+	RequestID      string   `json:"request_id"`
+	FailingService string   `json:"failing_service"`
+	ErrorMessage   string   `json:"error_message"`
+	Timeline       []string `json:"timeline"`
+}
+
+type AnalysisResult struct {
+	TotalEntriesProcessed int                   `json:"total_entries_processed"`
+	FailedRequestsFound   int                   `json:"failed_requests_found"`
+	ProcessingTimeSeconds float64               `json:"processing_time_seconds"`
+	FailedRequests        []FailedRequestReport `json:"failed_requests"`
 }
 
 var (
@@ -248,8 +263,23 @@ func SortTimelineByTimestamp(entries []LogEntry) []LogEntry {
 	return entriesCopy
 }
 
+func WriteJSONReport(result AnalysisResult, filename string) error {
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal result json: %w", err)
+	}
+
+	if err = os.WriteFile(filename, data, 0644); err != nil {
+		return fmt.Errorf("write result file: %w", err)
+	}
+
+	return nil
+}
+
 func main() {
 	dirPath := "./logs"
+
+	start := time.Now()
 
 	fmt.Println("Scanning directory:", dirPath)
 
@@ -285,30 +315,49 @@ func main() {
 		totalRequests--
 	}
 
-	fmt.Println("\nFailed requests analysis:")
-	fmt.Printf("Total failed requests: %d out of %d\n", len(failedRequestIDs), totalRequests)
+	failedReports := make([]FailedRequestReport, 0, len(failedRequestIDs))
 
-	if len(failedRequestIDs) > 0 {
-		fmt.Println("\nFailed request IDs:")
-		for _, id := range failedRequestIDs {
-			fmt.Println(" -", id)
+	for _, requestID := range failedRequestIDs {
+		entries := groupedEntries[requestID]
+		if len(entries) == 0 {
+			continue
 		}
 
-		sampleRequestID := failedRequestIDs[0]
-		firstFailure, found := FindFirstFailure(groupedEntries[sampleRequestID])
-		if found {
-			fmt.Printf("\nFirst failure for %s:\n", sampleRequestID)
-			fmt.Println("  Service:", firstFailure.Service)
-			fmt.Println("  Error:", firstFailure.Message)
-			fmt.Println("  Time:", firstFailure.Timestamp.Format(time.RFC3339Nano))
+		firstFailure, found := FindFirstFailure(entries)
+		if !found {
+			continue
 		}
 
-		sortedEntries := SortTimelineByTimestamp(groupedEntries[failedRequestIDs[0]])
-		if len(sortedEntries) > 0 {
-			fmt.Printf("Failed request timeline: %s", failedRequestIDs[0])
-			for _, entry := range sortedEntries {
-				fmt.Println(entry)
-			}
+		timelineEntries := SortTimelineByTimestamp(entries)
+		timeline := make([]string, 0, len(timelineEntries))
+
+		for _, entry := range timelineEntries {
+			timeline = append(timeline, fmt.Sprintf(
+				"%s [%s] %s: %s",
+				entry.Timestamp.Format("15:04:05.000Z07:00"),
+				entry.Level,
+				entry.Service,
+				entry.Message,
+			))
 		}
+
+		failedReports = append(failedReports, FailedRequestReport{
+			RequestID:      requestID,
+			FailingService: firstFailure.Service,
+			ErrorMessage:   firstFailure.Message,
+			Timeline:       timeline,
+		})
+	}
+
+	result := AnalysisResult{
+		TotalEntriesProcessed: len(logEntries),
+		FailedRequestsFound:   len(failedRequestIDs),
+		ProcessingTimeSeconds: time.Since(start).Seconds(),
+		FailedRequests:        failedReports,
+	}
+
+	if err = WriteJSONReport(result, "analysis-result.json"); err != nil {
+		fmt.Println("error writing report:", err)
+		return
 	}
 }
