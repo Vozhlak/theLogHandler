@@ -237,6 +237,17 @@ func FindFirstFailure(requestEntries []LogEntry) (LogEntry, bool) {
 	return LogEntry{}, false
 }
 
+func SortTimelineByTimestamp(entries []LogEntry) []LogEntry {
+	entriesCopy := make([]LogEntry, len(entries))
+	copy(entriesCopy, entries)
+
+	sort.Slice(entriesCopy, func(i, j int) bool {
+		return entriesCopy[i].Timestamp.Before(entriesCopy[j].Timestamp)
+	})
+
+	return entriesCopy
+}
+
 func main() {
 	dirPath := "./logs"
 
@@ -290,6 +301,14 @@ func main() {
 			fmt.Println("  Service:", firstFailure.Service)
 			fmt.Println("  Error:", firstFailure.Message)
 			fmt.Println("  Time:", firstFailure.Timestamp.Format(time.RFC3339Nano))
+		}
+
+		sortedEntries := SortTimelineByTimestamp(groupedEntries[failedRequestIDs[0]])
+		if len(sortedEntries) > 0 {
+			fmt.Printf("Failed request timeline: %s", failedRequestIDs[0])
+			for _, entry := range sortedEntries {
+				fmt.Println(entry)
+			}
 		}
 	}
 }
