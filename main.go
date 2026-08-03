@@ -189,6 +189,54 @@ func CorrelateRequests(entries []LogEntry) map[string][]LogEntry {
 	return grouped
 }
 
+func DetectFailedRequests(correlatedRequests map[string][]LogEntry) []string {
+	if len(correlatedRequests) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(correlatedRequests))
+
+	for key := range correlatedRequests {
+		keys = append(keys, key)
+	}
+
+	sort.Strings(keys)
+
+	var failedIDs []string
+
+	for _, key := range keys {
+		if key == "no request_id" {
+			continue
+		}
+
+		for _, entry := range correlatedRequests[key] {
+			if entry.Level == "WARN" || entry.Level == "ERROR" {
+				failedIDs = append(failedIDs, key)
+				break
+			}
+		}
+	}
+
+	return failedIDs
+}
+
+func FindFirstFailure(requestEntries []LogEntry) (LogEntry, bool) {
+	requestEntriesCopy := make([]LogEntry, len(requestEntries))
+	copy(requestEntriesCopy, requestEntries)
+
+	sort.Slice(requestEntriesCopy, func(i, j int) bool {
+		return requestEntriesCopy[i].Timestamp.Before(requestEntriesCopy[j].Timestamp)
+	})
+
+	for i := range requestEntriesCopy {
+		if requestEntriesCopy[i].Level == "WARN" || requestEntriesCopy[i].Level == "ERROR" {
+			return requestEntriesCopy[i], true
+		}
+	}
+
+	return LogEntry{}, false
+}
+
 func main() {
 	dirPath := "./logs"
 
@@ -212,9 +260,36 @@ func main() {
 
 	fmt.Println("\nProcessing files...")
 
-	_, err = ProcessMultipleFiles(logFiles)
+	logEntries, err := ProcessMultipleFiles(logFiles)
 	if err != nil {
 		fmt.Println("error processing files:", err)
 		return
+	}
+
+	groupedEntries := CorrelateRequests(logEntries)
+	failedRequestIDs := DetectFailedRequests(groupedEntries)
+
+	totalRequests := len(groupedEntries)
+	if _, ok := groupedEntries["no request_id"]; ok {
+		totalRequests--
+	}
+
+	fmt.Println("\nFailed requests analysis:")
+	fmt.Printf("Total failed requests: %d out of %d\n", len(failedRequestIDs), totalRequests)
+
+	if len(failedRequestIDs) > 0 {
+		fmt.Println("\nFailed request IDs:")
+		for _, id := range failedRequestIDs {
+			fmt.Println(" -", id)
+		}
+
+		sampleRequestID := failedRequestIDs[0]
+		firstFailure, found := FindFirstFailure(groupedEntries[sampleRequestID])
+		if found {
+			fmt.Printf("\nFirst failure for %s:\n", sampleRequestID)
+			fmt.Println("  Service:", firstFailure.Service)
+			fmt.Println("  Error:", firstFailure.Message)
+			fmt.Println("  Time:", firstFailure.Timestamp.Format(time.RFC3339Nano))
+		}
 	}
 }
