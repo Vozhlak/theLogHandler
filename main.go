@@ -172,6 +172,23 @@ func ProcessMultipleFiles(filePaths []string) ([]LogEntry, error) {
 	return allEntries, nil
 }
 
+func CorrelateRequests(entries []LogEntry) map[string][]LogEntry {
+	grouped := make(map[string][]LogEntry)
+	const KeyNoRequestId = "no request_id"
+
+	for _, item := range entries {
+		if item.RequestID == "" {
+			grouped[KeyNoRequestId] = append(grouped[KeyNoRequestId], item)
+
+			continue
+		}
+
+		grouped[item.RequestID] = append(grouped[item.RequestID], item)
+	}
+
+	return grouped
+}
+
 func main() {
 	dirPath := "./logs"
 
