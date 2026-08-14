@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io/fs"
 	"os"
@@ -35,6 +36,11 @@ type AnalysisResult struct {
 	FailedRequestsFound   int                   `json:"failed_requests_found"`
 	ProcessingTimeSeconds float64               `json:"processing_time_seconds"`
 	FailedRequests        []FailedRequestReport `json:"failed_requests"`
+}
+
+type Config struct {
+	InputDir   string
+	OutputFile string
 }
 
 var (
@@ -274,6 +280,40 @@ func WriteJSONReport(result AnalysisResult, filename string) error {
 	}
 
 	return nil
+}
+
+func ParseCommandLineArgs() (Config, error) {
+	inputDir := flag.String("input-dir", ".", "Directory containing .log files")
+	outputFile := flag.String("output-file", "results.json", "JSON output file path")
+	flag.Parse()
+
+	info, err := os.Stat(*inputDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Config{}, fmt.Errorf(
+				"input directory does not exist: %s",
+				*inputDir,
+			)
+		}
+
+		return Config{}, fmt.Errorf(
+			"check input directory %q: %w",
+			*inputDir,
+			err,
+		)
+	}
+
+	if !info.IsDir() {
+		return Config{}, fmt.Errorf(
+			"input path is not a directory: %s",
+			*inputDir,
+		)
+	}
+
+	return Config{
+		InputDir:   *inputDir,
+		OutputFile: *outputFile,
+	}, nil
 }
 
 func main() {
