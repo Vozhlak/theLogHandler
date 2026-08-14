@@ -6,8 +6,55 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"sync"
 	"the-log-handler/internal/parser"
 )
+
+func fileWorker(jobs <-chan string, results chan<- []parser.LogEntry) {
+	for path := range jobs {
+		entries, err := ReadLogFile(path)
+		if err != nil {
+			fmt.Printf("warning: failed to process file %s: %v\n", path, err)
+			continue
+		}
+		results <- entries
+	}
+}
+
+func ProcessFilesConcurrently(filePaths []string, numWorkers int) ([]parser.LogEntry, error) {
+	jobs := make(chan string, numWorkers*2)
+	results := make(chan []parser.LogEntry, numWorkers*2)
+
+	wg := sync.WaitGroup{}
+
+	for w := 0; w < numWorkers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fileWorker(jobs, results)
+		}()
+	}
+
+	go func() {
+		for _, path := range filePaths {
+			jobs <- path
+		}
+		close(jobs)
+	}()
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	var allEntries []parser.LogEntry
+
+	for entries := range results {
+		allEntries = append(allEntries, entries...)
+	}
+
+	return allEntries, nil
+}
 
 func ReadLogFile(filepath string) ([]parser.LogEntry, error) {
 	file, err := os.Open(filepath)
@@ -30,7 +77,7 @@ func ReadLogFile(filepath string) ([]parser.LogEntry, error) {
 		if err != nil {
 			parseErrors++
 
-			fmt.Printf("warning: line: %d: %s\n", totalLines, err)
+			//fmt.Printf("warning: line: %d: %s\n", totalLines, err)
 			continue
 		}
 

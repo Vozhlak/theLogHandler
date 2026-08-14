@@ -10,6 +10,8 @@ import (
 	"the-log-handler/internal/scanner"
 )
 
+const numWorkers = 4
+
 func main() {
 	args, err := cli.ParseCommandLineArgs()
 	if err != nil {
@@ -41,9 +43,9 @@ func main() {
 
 	fmt.Println("\nProcessing files...")
 
-	logEntries, err := processor.ProcessMultipleFiles(logFiles)
+	logEntries, err := processor.ProcessFilesConcurrently(logFiles, numWorkers)
 	if err != nil {
-		fmt.Println("error processing files:", err)
+		fmt.Println("error processing files concurrently:", err)
 		return
 	}
 
