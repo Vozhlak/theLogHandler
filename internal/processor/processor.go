@@ -2,6 +2,7 @@ package processor
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,18 +11,40 @@ import (
 	"the-log-handler/internal/parser"
 )
 
-func fileWorker(jobs <-chan string, results chan<- []parser.LogEntry) {
-	for path := range jobs {
-		entries, err := ReadLogFile(path)
-		if err != nil {
-			fmt.Printf("warning: failed to process file %s: %v\n", path, err)
-			continue
+func fileWorker(ctx context.Context, jobs <-chan string, results chan<- []parser.LogEntry) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case path, ok := <-jobs:
+			if !ok {
+				return
+			}
+
+			entries, err := ReadLogFile(path)
+			if err != nil {
+				fmt.Printf("warning: failed to process file %s: %v\n", path, err)
+				continue
+			}
+			results <- entries
 		}
-		results <- entries
 	}
 }
 
-func ProcessFilesConcurrently(filePaths []string, numWorkers int) ([]parser.LogEntry, error) {
+func ProcessFilesConcurrently(ctx context.Context, filePaths []string, numWorkers int) ([]parser.LogEntry, error) {
+	if len(filePaths) == 0 {
+		return nil, errors.New("file paths is empty")
+	}
+
+	if numWorkers <= 0 {
+		return nil, errors.New("numWorkers must be greater than zero")
+	}
+
+	if numWorkers > len(filePaths) {
+		numWorkers = len(filePaths)
+	}
+
 	jobs := make(chan string, numWorkers*2)
 	results := make(chan []parser.LogEntry, numWorkers*2)
 
@@ -31,15 +54,20 @@ func ProcessFilesConcurrently(filePaths []string, numWorkers int) ([]parser.LogE
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			fileWorker(jobs, results)
+			fileWorker(ctx, jobs, results)
 		}()
 	}
 
 	go func() {
+		defer close(jobs)
 		for _, path := range filePaths {
-			jobs <- path
+			select {
+			case <-ctx.Done():
+				return
+
+			case jobs <- path:
+			}
 		}
-		close(jobs)
 	}()
 
 	go func() {

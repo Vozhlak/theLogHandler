@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"the-log-handler/internal/cli"
@@ -13,6 +17,20 @@ import (
 const numWorkers = 4
 
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
+
+	go func() {
+		<-sigChan
+
+		fmt.Println("\nReceived interrupt signal, shutting down gracefully...")
+		cancel()
+	}()
+
 	args, err := cli.ParseCommandLineArgs()
 	if err != nil {
 		fmt.Println("error get args:", err)
@@ -43,10 +61,21 @@ func main() {
 
 	fmt.Println("\nProcessing files...")
 
-	logEntries, err := processor.ProcessFilesConcurrently(logFiles, numWorkers)
+	logEntries, err := processor.ProcessFilesConcurrently(ctx, logFiles, numWorkers)
 	if err != nil {
 		fmt.Println("error processing files concurrently:", err)
 		return
+	}
+
+	if ctx.Err() != nil {
+		fmt.Println("Received interrupt signal, shutting down gracefully...")
+		fmt.Printf(
+			"Processed entries from interrupted processing: %d\n",
+			len(logEntries),
+		)
+		fmt.Println("Saving partial results...")
+	} else {
+		fmt.Println("Processing completed successfully.")
 	}
 
 	groupedEntries := processor.CorrelateRequests(logEntries)
