@@ -19,6 +19,7 @@ go.work.sum
 
 # Logs
 *.log
+/logs/
 
 # Environment
 .env
@@ -29,3 +30,7 @@ Thumbs.db
 
 # Optional cache
 /.cache/
+
+*.exe
+results.json
+/logs/
